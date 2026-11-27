@@ -18,14 +18,15 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
-      - name: Test ANC identity decoder and JieLi connection states
+      - name: Test ANC identity, JieLi states and BLE battery attribution
         run: |
           output="$(mktemp -d)"
           javac --release 17 -d "$output" \
-            app/src/main/java/com/mali2/inspector/{AncIdentity,SdkConnectionState}.java \
-            tests/{AncIdentityTest,SdkConnectionStateTest}.java
+            app/src/main/java/com/mali2/inspector/{AncIdentity,SdkConnectionState,BleBatteryReading}.java \
+            tests/{AncIdentityTest,SdkConnectionStateTest,BleBatteryReadingTest}.java
           java -cp "$output" com.mali2.inspector.AncIdentityTest
           java -cp "$output" com.mali2.inspector.SdkConnectionStateTest
+          java -cp "$output" com.mali2.inspector.BleBatteryReadingTest
       - name: Download and verify official JieLi AARs
         run: |
           python3 - <<'PY'

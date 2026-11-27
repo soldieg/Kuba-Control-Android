@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothSocket;
+import android.bluetooth.le.BluetoothLeScanner;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -53,6 +54,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_CONNECT = 71;
     private static final int REQUEST_SCAN = 72;
     private static final int REQUEST_SAVE = 73;
+    private static final int REQUEST_BATTERY_SCAN = 74;
     private static final int EVENT_LIMIT = 420;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -70,7 +72,10 @@ public final class MainActivity extends Activity {
     private long rawBytes = 0;
     private volatile String rawState = "NAO_TESTADO";
     private SdkConnectionState sdkState = SdkConnectionState.IDLE;
-    private Button connectButton, queryButton, disconnectButton;
+    private Button connectButton, queryButton, disconnectButton, bleBatteryButton;
+    private TextView bleBatteryStatus;
+    private BleBatteryScan bleBatteryScan;
+    private String lastBleReading;
     private JieliBridge jieli;
     private AudioManager audio;
     private boolean monitorEnabled = false;
@@ -145,6 +150,10 @@ public final class MainActivity extends Activity {
         content.addView(deviceSpinner, new LinearLayout.LayoutParams(-1, dp(56)));
         button("Atualizar fones emparelhados", this::listDevices);
         button("Selecionar este fone e ler dados Android", this::selectAndReadAndroid);
+        title("Bateria por Bluetooth LE");
+        bleBatteryButton = button("Escutar bateria BLE (35 s)", this::toggleBleBatteryScan);
+        bleBatteryStatus = txt("Aguardando escuta BLE.", 15, 0xFF1F5076, true);
+        content.addView(bleBatteryStatus);
         title("2. Conexão real com o fone");
         paragraph("São testes distintos. Não abra SPP bruto e RCSP do SDK ao mesmo tempo. SPP bruto lê bytes, mas não envia nada.");
         button("Ler família do chip e protocolo ANC", this::readAncIdentity);
@@ -188,6 +197,11 @@ public final class MainActivity extends Activity {
             if (granted) listDevices(); else log("PERMISSAO", "NEGADA", "BLUETOOTH_CONNECT é necessária para listar e conectar");
         } else if (requestCode == REQUEST_SCAN) {
             if (granted) startJieli(); else log("PERMISSAO", "NEGADA", "BLUETOOTH_SCAN necessária para caminho SDK neste aparelho");
+        } else if (requestCode == REQUEST_BATTERY_SCAN) {
+            if (granted) startBleBatteryScan(); else {
+                bleBatteryStatus.setText("Permita Dispositivos próximos para escutar BLE.");
+                log("BLE_ESCUTA", "PERMISSAO_NEGADA", "Permita Dispositivos próximos.");
+            }
         }
     }
 
@@ -235,6 +249,55 @@ public final class MainActivity extends Activity {
             log("ANDROID_UUID", "LISTA_CONHECIDA", all.length() == 0 ? "Sem lista UUID/cache" : all.toString());
             log("ANDROID_A2DP_HFP", "NAO_E_CODEC_ATIVO", "bondState=" + selected.getBondState() + " type=" + selected.getType());
         } catch (Exception e) { log("ANDROID_BATTERY", "ERRO", e.toString()); }
+    }
+
+    private void toggleBleBatteryScan() {
+        if (bleBatteryScan != null && bleBatteryScan.isActive()) {
+            bleBatteryScan.stop("INTERROMPIDA");
+            return;
+        }
+        if (Build.VERSION.SDK_INT < 31) {
+            bleBatteryStatus.setText("A escuta de bateria BLE requer Android 12 ou superior.");
+            return;
+        }
+        if (!hasConnectPermission()) { ensureConnectPermission(); return; }
+        if (!selectDevice()) return;
+        if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_SCAN}, REQUEST_BATTERY_SCAN);
+            return;
+        }
+        startBleBatteryScan();
+    }
+
+    private void startBleBatteryScan() {
+        if (selected == null || (bleBatteryScan != null && bleBatteryScan.isActive())) return;
+        lastBleReading = null;
+        bleBatteryStatus.setText("Escutando por 35 s. Abra o estojo durante a escuta.");
+        try {
+            BluetoothAdapter bluetooth = adapter();
+            BluetoothLeScanner scanner = bluetooth == null ? null : bluetooth.getBluetoothLeScanner();
+            if (scanner == null) {
+                onBleBatteryEvent("BLE_ESCUTA", "ERRO", "Bluetooth LE indisponível. Verifique se o Bluetooth está ligado.");
+                return;
+            }
+            bleBatteryScan = new BleBatteryScan(scanner, selected.getAddress(), this::onBleBatteryEvent);
+            bleBatteryScan.start();
+        } catch (RuntimeException | LinkageError error) {
+            onBleBatteryEvent("BLE_ESCUTA", "ERRO", String.valueOf(error));
+        }
+    }
+
+    private void onBleBatteryEvent(String origin, String state, String note) {
+        if ("ANUNCIO_ATRIBUIDO".equals(state)) {
+            lastBleReading = note;
+            bleBatteryStatus.setText(note);
+        } else if ("TEMPO_CONCLUIDO".equals(state) || "INTERROMPIDA".equals(state)) {
+            if (lastBleReading == null) bleBatteryStatus.setText("Nenhum anúncio de bateria atribuído ao fone.");
+            else bleBatteryStatus.setText("Último anúncio: " + lastBleReading);
+        } else if ("ERRO".equals(state)) {
+            bleBatteryStatus.setText(note);
+        }
+        log(origin, state, note);
     }
 
     private void readAncIdentity() {
@@ -451,6 +514,8 @@ public final class MainActivity extends Activity {
         if (status == null || results == null || timeline == null) return;
         status.setText("JieLi RCSP: " + sdkState.label + "\nSPP bruto: " + rawState + " · RX: " + rawBytes + " bytes");
         connectButton.setEnabled(!sdkState.isActive());
+        bleBatteryButton.setText(bleBatteryScan != null && bleBatteryScan.isActive()
+            ? "Encerrar escuta BLE" : "Escutar bateria BLE (35 s)");
         queryButton.setEnabled(sdkState.canQuery());
         disconnectButton.setEnabled(sdkState.isActive() && sdkState != SdkConnectionState.DISCONNECTING);
         StringBuilder info = new StringBuilder();
@@ -484,11 +549,11 @@ public final class MainActivity extends Activity {
         Uri uri = data.getData();
         try {
             JSONObject out = new JSONObject();
-            out.put("appVersion","1.1.3"); out.put("platform","Android");
+            out.put("appVersion","1.1.4"); out.put("platform","Android");
             out.put("selectedMac", selected == null ? JSONObject.NULL : selected.getAddress());
             out.put("sppState",rawState);out.put("sppBytesReceived",rawBytes);
             out.put("rcspTransportStatus",sdkState.name());
-            out.put("confirmedInternalData","Conferir respostas em ANC_IDENTIDADE e callbacks RCSP_*");
+            out.put("confirmedInternalData","Conferir ANC_IDENTIDADE, BLE_BATERIA e callbacks RCSP_*");
             out.put("note","Medição Android não é prova de bateria interna; SDK genérico não confirma suporte do modelo.");
             out.put("events",new JSONArray(events));
             OutputStream stream = getContentResolver().openOutputStream(uri);
@@ -496,6 +561,10 @@ public final class MainActivity extends Activity {
             try (OutputStream os=stream) { os.write(out.toString(2).getBytes(StandardCharsets.UTF_8)); }
             log("EXPORTACAO","SALVA","JSON exportado por escolha do usuário");
         } catch (Exception e) { log("EXPORTACAO","ERRO",e.toString()); }
+    }
+    @Override protected void onStop() {
+        if (bleBatteryScan != null) bleBatteryScan.stop("INTERROMPIDA");
+        super.onStop();
     }
     @Override protected void onDestroy() {
         destroyed=true; monitorEnabled=false;main.removeCallbacks(pollAudio);
