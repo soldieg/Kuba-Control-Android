@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- SDK may require scan permission internally during SPP connection, but no scan in this app -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true"/>
     <application android:label="Mali 2 Inspector" android:usesCleartextTraffic="false" android:allowBackup="false" android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="unspecified">

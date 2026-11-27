@@ -1,6 +1,9 @@
 package com.mali2.inspector;
 
 import android.bluetooth.BluetoothDevice;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 
 import com.jieli.bluetooth.bean.BluetoothOption;
 import com.jieli.bluetooth.bean.base.BaseError;
@@ -12,11 +15,13 @@ import com.jieli.bluetooth.bean.device.voice.VolumeInfo;
 import com.jieli.bluetooth.bean.response.ADVInfoResponse;
 import com.jieli.bluetooth.constant.AttrAndFunCode;
 import com.jieli.bluetooth.constant.BluetoothConstant;
-import com.jieli.bluetooth.constant.StateCode;
+import com.jieli.bluetooth.constant.ErrorCode;
 import com.jieli.bluetooth.impl.rcsp.RCSPController;
 import com.jieli.bluetooth.interfaces.rcsp.callback.BTRcspEventCallback;
 import com.jieli.bluetooth.interfaces.rcsp.callback.OnRcspActionCallback;
+import com.jieli.bluetooth.interfaces.rcsp.callback.OnRcspCallback;
 
+import java.util.Arrays;
 import java.util.List;
 import java.lang.reflect.Method;
 
@@ -30,16 +35,76 @@ public final class JieliBridge {
     private final MainActivity activity;
     private final Sink sink;
     private final RCSPController controller;
-    private BluetoothDevice device;
-    private boolean connected = false;
-    private boolean queried = false;
-    private final BTRcspEventCallback callback = new BTRcspEventCallback() {
-        @Override public void onConnection(BluetoothDevice target, int status) {
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private volatile BluetoothDevice device;
+    private volatile SdkConnectionState state = SdkConnectionState.IDLE;
+    private volatile boolean queried;
+    private volatile int attempt;
+    private volatile long attemptStart;
+    private final Runnable pending = this::logPending;
+
+    private void logPending() {
+        if (state.isActive() && !state.canQuery()) {
+            sink.log("RCSP_SDK", "SEM_CONFIRMACAO",
+                context() + " estado=" + state + " após 45 s; aguardando callback final do SDK");
+        }
+    }
+    private final OnRcspCallback rcspCallback = new OnRcspCallback() {
+        @Override public void onRcspInit(BluetoothDevice target, int code) {
             if (!matches(target)) return;
-            connected = status == StateCode.CONNECTION_OK;
-            activity.runOnUiThread(() -> activity.sdkConnected(connected));
-            sink.log("RCSP_TRANSPORTE", connected?"CONECTADO_SDK":"ESTADO="+status,
-                "Conexão do SDK: status="+status+" (a autenticação ainda exige resposta RCSP)");
+            String result;
+            switch (code) {
+                case ErrorCode.ERR_NONE: result = "OK"; break;
+                case ErrorCode.SUB_ERR_START_AUTH_DEVICE: result = "FALHA_AO_INICIAR_AUTENTICACAO"; break;
+                case ErrorCode.SUB_ERR_AUTH_DEVICE: result = "FALHA_DE_AUTENTICACAO"; break;
+                case ErrorCode.SUB_ERR_REMOTE_DEVICE_DISCONNECT: result = "DISPOSITIVO_DESCONECTADO"; break;
+                default: result = "OUTRO_RESULTADO"; break;
+            }
+            sink.log("RCSP_INIT", result, context() + " codigo=" + code);
+        }
+        @Override public void onRcspError(BluetoothDevice target, BaseError error) {
+            if (matches(target)) logError("RCSP_PROTOCOLO", error);
+        }
+    };
+    private final BTRcspEventCallback callback = new BTRcspEventCallback() {
+        @Override public void onConnection(BluetoothDevice target, int code) {
+            activity.runOnUiThread(() -> {
+                if (!matches(target)) return;
+                SdkConnectionState next = SdkConnectionState.fromJieli(code);
+                SdkConnectionState previous = state;
+                sink.log("RCSP_TRANSPORTE", next == null ? "ESTADO_DESCONHECIDO" : next.name(),
+                    context() + " codigo=" + code + " anterior=" + previous);
+                if (next == null || (previous == SdkConnectionState.DISCONNECTING && next.isActive())) return;
+                // A transport event can arrive after the SDK has already reported readiness.
+                if (previous.canQuery() && (next == SdkConnectionState.CONNECTING
+                        || next == SdkConnectionState.SPP_CONNECTED)) return;
+                setState(next);
+                if (!next.isActive() || next.canQuery()) main.removeCallbacks(pending);
+                if (!next.isActive()) queried = false;
+                if (next.canQuery() && !previous.canQuery()) queryAll();
+            });
+        }
+        @Override public void onSppStatus(BluetoothDevice target, int code) {
+            if (!matches(target)) return;
+            SdkConnectionState observed = SdkConnectionState.fromJieli(code);
+            sink.log("RCSP_SPP", observed == null ? "ESTADO_DESCONHECIDO" : observed.name(),
+                context() + " codigo=" + code);
+            if (observed == SdkConnectionState.SPP_CONNECTED || observed == SdkConnectionState.READY) {
+                activity.runOnUiThread(() -> {
+                    if (matches(target) && state == SdkConnectionState.CONNECTING) {
+                        setState(SdkConnectionState.SPP_CONNECTED);
+                    }
+                });
+            }
+        }
+        @Override public void onA2dpStatus(BluetoothDevice target, int code) {
+            if (matches(target)) sink.log("RCSP_A2DP", "ESTADO", context() + " codigo=" + code);
+        }
+        @Override public void onHfpStatus(BluetoothDevice target, int code) {
+            if (matches(target)) sink.log("RCSP_HFP", "ESTADO", context() + " codigo=" + code);
+        }
+        @Override public void onError(BaseError error) {
+            if (device != null) logError("RCSP_SDK_ERRO", error);
         }
         @Override public void onBatteryChange(BluetoothDevice target, BatteryInfo info) {
             if (matches(target)) sink.log("RCSP_BATERIA", "EVENTO_DO_FONE", String.valueOf(info));
@@ -74,17 +139,50 @@ public final class JieliBridge {
         }
         controller=RCSPController.getInstance();
         controller.addBTRcspEventCallback(callback);
+        controller.registerOnRcspCallback(rcspCallback);
         sink.log("RCSP_SDK", "INICIALIZADO", "JieLi SDK oficial + PREFER_SPP + isUseDeviceAuth(true); sem OTA");
     }
-    boolean isConnected(){ return connected && device != null; }
+    boolean isConnected() {
+        return state.canQuery() && device != null;
+    }
     private boolean matches(BluetoothDevice target) {
-        return device != null && target != null && device.getAddress().equalsIgnoreCase(target.getAddress());
+        BluetoothDevice current = device;
+        return current != null && target != null && current.equals(target);
+    }
+    private void setState(SdkConnectionState next) {
+        state = next;
+        activity.sdkStateChanged(next);
+    }
+    private String context() {
+        return "tentativa=" + attempt + " decorrido_ms=" + (SystemClock.elapsedRealtime() - attemptStart);
+    }
+    private void logError(String origin, BaseError error) {
+        String detail = error == null ? "sem código" :
+            "codigo=" + error.getCode() + " subcodigo=" + error.getSubCode() + " mensagem=" + error.getMessage();
+        sink.log(origin, "ERRO", context() + " " + detail);
     }
     void connect(BluetoothDevice selected) {
-        if (device != null && !device.getAddress().equalsIgnoreCase(selected.getAddress())) disconnect();
-        device=selected; connected=false; queried=false;
-        sink.log("RCSP_SDK", "CONECTANDO", "Transport=SPP; autenticação oficial habilitada; alvo="+selected.getAddress());
-        controller.connectDevice(selected, BluetoothConstant.PROTOCOL_TYPE_SPP);
+        if (state.isActive()) {
+            sink.log("RCSP_SDK", "JA_EM_USO", context() + " estado=" + state);
+            return;
+        }
+        device = selected;
+        queried = false;
+        attempt++;
+        attemptStart = SystemClock.elapsedRealtime();
+        setState(SdkConnectionState.CONNECTING);
+        try {
+            BluetoothOption option = controller.getBluetoothOption();
+            sink.log("RCSP_SDK", "CONECTANDO", context() + " transporte=SPP uuid=" + option.getSppUUID()
+                + " autenticacao=" + option.isUseDeviceAuth() + " pareamento=" + selected.getBondState()
+                + " tipo=" + selected.getType() + " servicos_android=" + Arrays.toString(selected.getUuids()));
+            main.postDelayed(pending, 45000);
+            controller.connectDevice(selected, BluetoothConstant.PROTOCOL_TYPE_SPP);
+        } catch (RuntimeException | LinkageError error) {
+            main.removeCallbacks(pending);
+            setState(SdkConnectionState.FAILED);
+            sink.log("RCSP_SDK", "ERRO_AO_CONECTAR", context() + " " + error);
+        }
     }
     void queryAll() {
         BluetoothDevice d=device;
@@ -95,7 +193,7 @@ public final class JieliBridge {
         try {
             controller.requestDeviceInfo(d, 0xffffffff, new OnRcspActionCallback<DeviceInfo>() {
                 @Override public void onSuccess(BluetoothDevice dev, DeviceInfo info) {
-                    if (!matches(dev)) return;
+                    if (!isConnected() || !matches(dev)) return;
                     if (info == null) {
                         queried = false;
                         sink.log("RCSP_ID", "RESPOSTA_NULA", "SDK retornou objeto nulo; nenhuma leitura interna confirmada");
@@ -119,6 +217,7 @@ public final class JieliBridge {
         } catch (Throwable e) { queried=false; sink.log("RCSP_ID","EXCECAO", e.toString()); }
     }
     private void querySystem(BluetoothDevice d) {
+        if (!isConnected() || !matches(d)) return;
         try {
             int mask = (1 << AttrAndFunCode.SYS_INFO_ATTR_BATTERY)
                 | (1 << AttrAndFunCode.SYS_INFO_ATTR_VOLUME)
@@ -137,6 +236,7 @@ public final class JieliBridge {
         } catch(Throwable e){ sink.log("RCSP_SYS_INFO","EXCECAO",e.toString()); querySettings(d); }
     }
     private void querySettings(BluetoothDevice d) {
+        if (!isConnected() || !matches(d)) return;
         try {
             controller.getDeviceSettingsInfo(d, 0xffffffff, new OnRcspActionCallback<ADVInfoResponse>() {
                 @Override public void onSuccess(BluetoothDevice dev, ADVInfoResponse info) {
@@ -158,6 +258,7 @@ public final class JieliBridge {
         } catch(Throwable e) { sink.log("RCSP_CONFIG","EXCECAO",e.toString()); queryNoise(d); }
     }
     private void queryNoise(BluetoothDevice d) {
+        if (!isConnected() || !matches(d)) return;
         try {
             controller.getCurrentVoiceMode(d,new OnRcspActionCallback<Boolean>(){
                 @Override public void onSuccess(BluetoothDevice dev,Boolean v){
@@ -172,6 +273,7 @@ public final class JieliBridge {
         } catch(Throwable e){sink.log("RCSP_ANC_ATUAL","EXCECAO",e.toString());queryNoiseList(d);}
     }
     private void queryNoiseList(BluetoothDevice d) {
+        if (!isConnected() || !matches(d)) return;
         try {
             controller.getAllVoiceModes(d,new OnRcspActionCallback<Boolean>(){
                 @Override public void onSuccess(BluetoothDevice dev,Boolean v){
@@ -202,12 +304,24 @@ public final class JieliBridge {
         return sb.length() > 0 ? sb.toString() : "Nenhum destes getters esta disponivel na versao de SDK/firmware";
     }
     void disconnect() {
-        if(device!=null) controller.disconnectDevice(device);
-        connected=false; queried=false;
-        activity.runOnUiThread(()->activity.sdkConnected(false));
+        BluetoothDevice current = device;
+        if (current == null || !state.isActive() || state == SdkConnectionState.DISCONNECTING) return;
+        main.removeCallbacks(pending);
+        setState(SdkConnectionState.DISCONNECTING);
+        queried = false;
+        try {
+            controller.disconnectDevice(current);
+        } catch (RuntimeException | LinkageError error) {
+            setState(SdkConnectionState.FAILED);
+            sink.log("RCSP_SDK", "ERRO_AO_DESCONECTAR", context() + " " + error);
+        }
     }
     void close() {
-        disconnect();
+        main.removeCallbacks(pending);
+        controller.unregisterOnRcspCallback(rcspCallback);
         controller.removeBTRcspEventCallback(callback);
+        BluetoothDevice current = device;
+        device = null;
+        if (current != null && state.isActive()) controller.disconnectDevice(current);
     }
 }

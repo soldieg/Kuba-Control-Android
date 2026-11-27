@@ -18,12 +18,14 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
           log-accepted-android-sdk-licenses: false
-      - name: Test ANC identity decoder
+      - name: Test ANC identity decoder and JieLi connection states
         run: |
           output="$(mktemp -d)"
           javac --release 17 -d "$output" \
-            app/src/main/java/com/mali2/inspector/AncIdentity.java tests/AncIdentityTest.java
+            app/src/main/java/com/mali2/inspector/{AncIdentity,SdkConnectionState}.java \
+            tests/{AncIdentityTest,SdkConnectionStateTest}.java
           java -cp "$output" com.mali2.inspector.AncIdentityTest
+          java -cp "$output" com.mali2.inspector.SdkConnectionStateTest
       - name: Download and verify official JieLi AARs
         run: |
           python3 - <<'PY'
@@ -50,6 +52,6 @@ jobs:
         run: python3 -B tests/verify_sdk_packaging.py app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Mali2_Inspector_Android_debug_APK
+          name: Mali2_Inspector_Android_CI_ONLY
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

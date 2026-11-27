@@ -18,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.KeyEvent;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -68,7 +69,8 @@ public final class MainActivity extends Activity {
     private volatile boolean readingRaw = false;
     private long rawBytes = 0;
     private volatile String rawState = "NAO_TESTADO";
-    private String sdkState = "NAO_TESTADO";
+    private SdkConnectionState sdkState = SdkConnectionState.IDLE;
+    private Button connectButton, queryButton, disconnectButton;
     private JieliBridge jieli;
     private AudioManager audio;
     private boolean monitorEnabled = false;
@@ -110,11 +112,12 @@ public final class MainActivity extends Activity {
     private void paragraph(String text) {
         TextView v = txt(text, 13, 0xFF46566B, false); content.addView(v);
     }
-    private void button(String label, Runnable action) {
+    private Button button(String label, Runnable action) {
         Button b = new Button(this); b.setAllCaps(false); b.setText(label);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(50));
         lp.topMargin = dp(5); content.addView(b, lp);
         b.setOnClickListener(v -> action.run());
+        return b;
     }
     private void buildScreen() {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setBackgroundColor(0xFFF7F9FC);
@@ -131,6 +134,12 @@ public final class MainActivity extends Activity {
         TextView header = txt("MALI 2  /  INSPECTOR", 24, 0xFF182C48, true);
         content.addView(header);
         paragraph("Android 8+ • Bluetooth Classic / JL_SPP / RCSP • coleta local, sem OTA e sem alterar o fone");
+        title("Mídia do Android");
+        paragraph("Os botões controlam a mídia do celular e a saída de áudio ativa.");
+        button("Pausar", () -> mediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE, "PAUSAR"));
+        button("Reproduzir", () -> mediaKey(KeyEvent.KEYCODE_MEDIA_PLAY, "REPRODUZIR"));
+        button("Aumentar volume", () -> adjustMediaVolume(AudioManager.ADJUST_RAISE));
+        button("Diminuir volume", () -> adjustMediaVolume(AudioManager.ADJUST_LOWER));
         title("1. Dispositivo emparelhado");
         deviceSpinner = new Spinner(this);
         content.addView(deviceSpinner, new LinearLayout.LayoutParams(-1, dp(56)));
@@ -141,10 +150,11 @@ public final class MainActivity extends Activity {
         button("Ler família do chip e protocolo ANC", this::readAncIdentity);
         button("Testar SPP puro — SOMENTE RECEBER", this::testRaw);
         button("Encerrar SPP puro", this::stopRaw);
-        button("Conectar com SDK JieLi — SPP + autenticação", this::connectJieli);
-        button("Consultar RCSP: identificação, bateria, EQ e modos", this::queryJieli);
-        button("Desconectar SDK JieLi", this::disconnectJieli);
-        button("Abrir demonstração de controles", () -> DemoPanel.show(this));
+        connectButton = button("Conectar e ler ANC, bateria e firmware", this::connectJieli);
+        queryButton = button("Repetir consultas do fone", this::queryJieli);
+        disconnectButton = button("Desconectar SDK JieLi", this::disconnectJieli);
+        status = txt("Aguardando permissão Bluetooth...", 15, 0xFF1F5076, true);
+        content.addView(status);
         title("3. Controles sensíveis / modo jogo");
         paragraph("Toque em um gesto e execute-o no fone. O monitor registra o volume Android e se há reprodução de áudio. Só isso NÃO confirma um evento AVRCP nem o estado interno do modo jogo.");
         button("Iniciar / parar monitor de áudio", this::toggleMonitor);
@@ -156,7 +166,7 @@ public final class MainActivity extends Activity {
         };
         for (String gesture : gestures) button("Marcar: " + gesture, () -> markGesture(gesture));
         title("4. Evidências e relatório");
-        status = txt("Aguardando permissão Bluetooth...", 15, 0xFF1F5076, true); content.addView(status);
+        button("Abrir demonstração de controles", () -> DemoPanel.show(this));
         results = txt("Nenhum dado interno confirmado.", 13, 0xFF1D3348, false); content.addView(results);
         button("Exportar relatório JSON (sem enviar à internet)", this::saveReport);
         timeline = txt("Sem eventos.", 12, 0xFF4C5B6D, false); content.addView(timeline);
@@ -230,7 +240,7 @@ public final class MainActivity extends Activity {
     private void readAncIdentity() {
         if (!hasConnectPermission()) { ensureConnectPermission(); return; }
         if (identitySocket != null || rawSocket != null || "CONECTANDO".equals(rawState)
-                || "CONECTANDO".equals(sdkState) || "CONECTADO".equals(sdkState)) {
+                || sdkState.isActive()) {
             log("ANC_IDENTIDADE", "OCUPADO", "Encerre as outras sessões Bluetooth antes de consultar.");
             return;
         }
@@ -274,7 +284,7 @@ public final class MainActivity extends Activity {
     private void testRaw() {
         if (!hasConnectPermission()) { ensureConnectPermission(); return; }
         if (identitySocket != null || rawSocket != null || "CONECTANDO".equals(rawState) || readingRaw) { log("SPP", "JA_ATIVO", "Feche antes de tentar novamente"); return; }
-        if ("CONECTADO".equals(sdkState) || "CONECTANDO".equals(sdkState)) { log("SPP", "BLOQUEADO", "Desconecte o SDK JieLi primeiro"); return; }
+        if (sdkState.isActive()) { log("SPP", "BLOQUEADO", "Desconecte o SDK JieLi primeiro"); return; }
         if (!selectDevice()) return;
         new AlertDialog.Builder(this).setTitle("Abrir SPP somente leitura?")
             .setMessage("Este teste abre um socket RFCOMM autenticado pelo pareamento Android. Ele NÃO envia comandos RCSP, não altera o fone e pode competir com conexões de outros aplicativos.")
@@ -330,53 +340,71 @@ public final class MainActivity extends Activity {
     }
     private void connectJieli() {
         if (!hasConnectPermission()) { ensureConnectPermission(); return; }
+        if (sdkState.isActive()) return;
         if (identitySocket != null || readingRaw || rawSocket != null || "CONECTANDO".equals(rawState)) {
-            log("RCSP", "BLOQUEADO", "Aguarde a identificação ou encerre a escuta SPP."); return;
+            log("RCSP", "BLOQUEADO", "Aguarde a identificação ou encerre a escuta SPP.");
+            return;
         }
         if (!selectDevice()) return;
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-            new AlertDialog.Builder(this).setTitle("Permissão adicional")
-                .setMessage("O SDK da JieLi pode utilizar descoberta Bluetooth para estabelecer sua conexão. O app não coleta localização.")
-                .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Permitir", (d,w)->requestPermissions(new String[]{Manifest.permission.BLUETOOTH_SCAN},REQUEST_SCAN)).show();
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_SCAN}, REQUEST_SCAN);
             return;
         }
         startJieli();
     }
     private void startJieli() {
-        if (selected == null || identitySocket != null || rawSocket != null || "CONECTANDO".equals(rawState)) return;
-        new AlertDialog.Builder(this).setTitle("Autenticação oficial JieLi")
-            .setMessage("Conectar pelo SDK oficial usando BluetoothOption.PREFER_SPP e autenticação ativada. Essa etapa utiliza pacotes de negociação do SDK, mas nenhuma gravação, OTA ou alteração de configuração.")
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("Conectar", (d,w) -> {
-                try {
-                    if (jieli == null) jieli = new JieliBridge(this, this::log);
-                    sdkState = "CONECTANDO";
-                    jieli.connect(selected);
-                } catch (Throwable e) {
-                    sdkState="ERRO"; log("RCSP", "ERRO_INICIALIZACAO", e.toString());
-                }
-            }).show();
+        if (selected == null || sdkState.isActive() || identitySocket != null
+                || rawSocket != null || "CONECTANDO".equals(rawState)) return;
+        try {
+            if (jieli == null) jieli = new JieliBridge(this, this::log);
+            jieli.connect(selected);
+        } catch (RuntimeException | LinkageError error) {
+            sdkStateChanged(SdkConnectionState.FAILED);
+            log("RCSP", "ERRO_INICIALIZACAO", error.toString());
+        }
     }
     private void queryJieli() {
         if (jieli == null || !jieli.isConnected()) {
-            log("RCSP", "SEM_CONEXAO", "A conexão SDK precisa ser confirmada antes das consultas"); return;
+            log("RCSP", "SEM_CONEXAO", "A conexão SDK precisa ser confirmada antes das consultas.");
+            return;
         }
-        new AlertDialog.Builder(this).setTitle("Consultar informações internas?")
-            .setMessage("Envia apenas comandos documentados de LEITURA usando a sessão JieLi. Identificação, bateria, volume, EQ, ANC, configurações de gestos e detecção de uso, caso suportados.")
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("Consultar", (d,w) -> {
-                try { jieli.queryAll(); } catch (Throwable e) { log("RCSP", "ERRO_CONSULTA", e.toString()); }
-            }).show();
+        jieli.queryAll();
     }
     private void disconnectJieli() {
-        if (jieli != null) {
-            try { jieli.disconnect(); } catch(Throwable e) { log("RCSP", "ERRO_DESCONECTAR", e.toString()); }
-        }
-        sdkState="FECHADO";
-        log("RCSP", "FECHADO", "Desconexão solicitada");
+        if (jieli != null) jieli.disconnect();
     }
-    void sdkConnected(boolean connected) { sdkState = connected ? "CONECTADO" : "DESCONECTADO"; updateUi(); }
+    void sdkStateChanged(SdkConnectionState next) {
+        sdkState = next;
+        updateUi();
+    }
+
+    private void mediaKey(int code, String action) {
+        if (audio == null) return;
+        String before = audioSnapshot();
+        try {
+            audio.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, code));
+            audio.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, code));
+            log("ANDROID_MIDIA", "ENVIADO", action + "; antes=" + before);
+            main.postDelayed(() -> log("ANDROID_MIDIA", "ESTADO_OBSERVADO",
+                action + "; depois=" + audioSnapshot()), 600);
+        } catch (RuntimeException error) {
+            log("ANDROID_MIDIA", "ERRO", action + "; " + error);
+        }
+    }
+
+    private void adjustMediaVolume(int direction) {
+        if (audio == null) return;
+        String before = audioSnapshot();
+        try {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI);
+            String action = direction == AudioManager.ADJUST_RAISE ? "AUMENTAR_VOLUME" : "DIMINUIR_VOLUME";
+            log("ANDROID_MIDIA", "ENVIADO", action + "; antes=" + before);
+            main.postDelayed(() -> log("ANDROID_MIDIA", "ESTADO_OBSERVADO",
+                action + "; depois=" + audioSnapshot() + "; volumeFixo=" + audio.isVolumeFixed()), 600);
+        } catch (RuntimeException error) {
+            log("ANDROID_MIDIA", "ERRO", error.toString());
+        }
+    }
 
     private void toggleMonitor() {
         monitorEnabled = !monitorEnabled;
@@ -408,7 +436,7 @@ public final class MainActivity extends Activity {
         }
     }
     interface EventSink { void emit(String origin,String state,String note); }
-    void log(String source, String state, String note) { runOnUiThread(() -> record(source,state,note)); }
+    void log(String source, String state, String note) { runOnUiThread(() -> { if (!destroyed) record(source,state,note); }); }
     private void record(String source, String state, String note) {
         try {
             JSONObject j = new JSONObject();
@@ -421,7 +449,10 @@ public final class MainActivity extends Activity {
     }
     private void updateUi() {
         if (status == null || results == null || timeline == null) return;
-        status.setText("SPP bruto: " + rawState + "  |  RX: " + rawBytes + " bytes  |  RCSP: " + sdkState);
+        status.setText("JieLi RCSP: " + sdkState.label + "\nSPP bruto: " + rawState + " · RX: " + rawBytes + " bytes");
+        connectButton.setEnabled(!sdkState.isActive());
+        queryButton.setEnabled(sdkState.canQuery());
+        disconnectButton.setEnabled(sdkState.isActive() && sdkState != SdkConnectionState.DISCONNECTING);
         StringBuilder info = new StringBuilder();
         info.append("Alvo: ").append(selected == null ? "não selecionado" : selected.getName()+" / "+selected.getAddress());
         info.append("\nFonte atual: Android + respostas reais JieLi, se houver.\n");
@@ -453,10 +484,10 @@ public final class MainActivity extends Activity {
         Uri uri = data.getData();
         try {
             JSONObject out = new JSONObject();
-            out.put("appVersion","1.1.1"); out.put("platform","Android");
+            out.put("appVersion","1.1.2"); out.put("platform","Android");
             out.put("selectedMac", selected == null ? JSONObject.NULL : selected.getAddress());
             out.put("sppState",rawState);out.put("sppBytesReceived",rawBytes);
-            out.put("rcspTransportStatus",sdkState);
+            out.put("rcspTransportStatus",sdkState.name());
             out.put("confirmedInternalData","Conferir respostas em ANC_IDENTIDADE e callbacks RCSP_*");
             out.put("note","Medição Android não é prova de bateria interna; SDK genérico não confirma suporte do modelo.");
             out.put("events",new JSONArray(events));

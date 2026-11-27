@@ -1,12 +1,14 @@
-# Mali 2 Inspector Android 1.1 — APK Android nativo + SDK oficial JieLi
+# Mali 2 Inspector Android 1.1.2 — APK Android nativo + SDK oficial JieLi
 
-## Android 1.1
+## Android 1.1.2
 
 O APK de depuração fica em [Releases](https://github.com/soldieg/Kuba-Control-Android/releases). Requer Android 8 ou mais recente.
 
 Depois de emparelhar, selecione o Mali 2 e toque em **Ler família do chip e protocolo ANC**. Essa ação usa RFCOMM no Android, com as duas consultas documentadas que responderam no Windows. A consulta usa o fone emparelhado selecionado no aplicativo. Em **Abrir demonstração de controles**, bateria, modos, toques e equalização são simulados localmente. O caminho existente pelo SDK oficial JieLi continua disponível para consultas RCSP com autenticação.
 
 Veja [a auditoria do Kuba Control](AUDITORIA_KUBA_CONTROL.md) para a divisão de recursos entre Android e Windows.
+
+Os botões de mídia no topo controlam a sessão de reprodução e o volume do Android. O relatório registra o comando e o estado observado.
 
 A validação de transporte no celular exige o fone emparelhado e uma resposta registrada pelo aplicativo. A reprodução da captura Windows nos testes valida o decodificador.
 
@@ -17,8 +19,8 @@ O objetivo é avançar da identificação do serviço `JL_SPP` do **Kuba Mali 2*
 1. Instale **Android Studio** (JDK 17 integrado) e, em **SDK Manager**, instale **Android SDK Platform 35** e **Build Tools 35**. Aceite as licenças no Android Studio.
 2. Extraia este ZIP em uma pasta normal. Não execute diretamente dentro do ZIP.
 3. Abra **`COMPILAR_APK_WINDOWS.bat`**. O script confere o Android SDK, baixa **somente os dois AAR RCSP/autenticação** diretamente do repositório oficial da JieLi e verifica o SHA-1 de cada blob Git. Instala Gradle 8.9 se não existir. Não precisa Android Studio aberto.
-4. A saída é `Mali2_Inspector_Android_v1_1_1_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
-5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_1_debug.apk`.
+4. A saída é `Mali2_Inspector_Android_v1_1_2_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
+5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_2_debug.apk`.
 
 Na primeira compilação, são necessárias conexões à internet para Gradle/Android, bibliotecas e dependências.
 
@@ -27,9 +29,13 @@ Na primeira compilação, são necessárias conexões à internet para Gradle/An
 1. Crie um repositório **privado** no GitHub (evite enviar MACs e logs pessoais).
 2. Suba **o conteúdo** desta pasta como raiz do repositório, incluindo `.github/workflows/build-apk.yml`.
 3. Abra **Actions → Build Android APK debug → Run workflow**. Alternativamente o workflow inicia em `push` para `main`.
-4. Ao concluir, abra o job e baixe o artefato `Mali2_Inspector_Android_debug_APK`, que contém `app-debug.apk` instalável.
+4. Ao concluir, abra o job e baixe o artefato `Mali2_Inspector_Android_CI_ONLY`, que contém um APK para testes de CI. A assinatura desse artefato é diferente da release.
 
 **A compilação pela nuvem não foi realizada aqui**. Se o workflow falhar por mudança no SDK da JieLi, a saída completa do Gradle mostrará a classe/método que precisa ser adaptado.
+
+## Atualização do aplicativo
+
+Para atualizar sem desinstalar, baixe sempre o APK em **Releases**. As releases usam a mesma assinatura e um código de versão crescente. O APK de Actions ou um build local assinado com outra chave exige uma migração única. Nesse caso, exporte o relatório antes de desinstalar a instalação antiga e instale o APK de Releases.
 
 ## Permissões pedidas
 
@@ -37,6 +43,7 @@ Na primeira compilação, são necessárias conexões à internet para Gradle/An
 |---|---|
 | `BLUETOOTH_CONNECT` | Android 12+: listar dispositivos já emparelhados, consultar serviços e conectar por SPP. Solicitada ao abrir o app. |
 | `BLUETOOTH_SCAN` (`neverForLocation`) | Android 12+: o gerenciador oficial JieLi pode precisar executar descoberta durante a conexão. Pedida somente ao escolher **Conectar SDK JieLi**. |
+| `MODIFY_AUDIO_SETTINGS` | Ajustar o volume de mídia do Android pelos botões do app. |
 | `BLUETOOTH` / `BLUETOOTH_ADMIN` (`maxSdkVersion=30`) | Compatibilidade Bluetooth Classic/SDK com Android 11 ou anterior. |
 
 **Não são pedidas:** localização, acesso a armazenamento geral, internet, SMS, contatos, microfone, notificações, acesso root, depuração USB ou acessibilidade. O diagnóstico é local; `ACTION_CREATE_DOCUMENT` permite exportar um JSON sem permissões de armazenamento. O SDK de terceiros é baixado **na compilação**, não pelo aplicativo.
@@ -47,8 +54,8 @@ Na primeira compilação, são necessárias conexões à internet para Gradle/An
 2. Abra o app e aceite **Dispositivos próximos / Conectar**. Selecione explicitamente *Kuba Mali 2*; caso vários apareçam, confira o MAC do seu próprio fone.
 3. Clique **Selecionar este fone e ler dados Android**. O app mostra os UUIDs conhecidos pelo Android.
 4. Clique **Testar SPP puro — SOMENTE RECEBER**. Isso tenta abrir o RFCOMM seguro com o UUID SPP. Encerre o teste após alguns segundos. **Abrir e receber 0 bytes não comprova autenticação nem suporta RCSP.**
-5. Clique **Conectar com SDK JieLi**. O app usa `BluetoothOption.PREFER_SPP`, `setUseDeviceAuth(true)` e `RCSPController.connectDevice(..., PROTOCOL_TYPE_SPP)`. O SDK gerencia sua própria negociação; não tenta burlar autenticação.
-6. Quando o status indicar conexão pelo SDK, clique **Consultar RCSP**. Uma resposta válida a `requestDeviceInfo` habilita uma sequência limitada de consultas oficiais somente leitura. Sem essa resposta, o app **para** e registra o erro, em vez de insistir em comandos.
+5. Toque em **Conectar e ler ANC, bateria e firmware**. O app usa `BluetoothOption.PREFER_SPP`, `setUseDeviceAuth(true)` e `RCSPController.connectDevice(..., PROTOCOL_TYPE_SPP)`. O SDK gerencia sua própria negociação; não tenta burlar autenticação.
+6. O app consulta automaticamente quando o SDK fica pronto. Use **Repetir consultas do fone** para ler novamente. Uma resposta válida a `requestDeviceInfo` habilita uma sequência limitada de consultas oficiais somente leitura. Sem essa resposta, o app **para** e registra o erro, em vez de insistir em comandos.
 7. Para gestos, ative o monitor de áudio e marque os oito testes. Um registro de alteração de volume não demonstra ter capturado um quadro AVRCP; e o modo jogo não deve aparecer como ANC.
 8. Use **Exportar relatório JSON** e envie o resultado, sem necessidade de enviar logs pessoais do telefone.
 
