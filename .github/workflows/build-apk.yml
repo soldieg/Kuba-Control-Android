@@ -15,9 +15,15 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install Android SDK platform
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Test ANC identity decoder
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          output="$(mktemp -d)"
+          javac --release 17 -d "$output" \
+            app/src/main/java/com/mali2/inspector/AncIdentity.java tests/AncIdentityTest.java
+          java -cp "$output" com.mali2.inspector.AncIdentityTest
       - name: Download and verify official JieLi AARs
         run: |
           python3 - <<'PY'
