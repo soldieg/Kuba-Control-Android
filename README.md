@@ -1,104 +1,22 @@
-# Mali 2 Inspector Android 1.1.5 — APK Android nativo + SDK oficial JieLi
+# Kuba Control Android
 
-## Android 1.1.5
+Projeto comunitário de interoperabilidade com o **Kuba Mali 2**. O objetivo é criar um aplicativo que leia o estado do fone, identifique o que ele expõe por Bluetooth e amplie as consultas a partir de respostas verificadas. O **Mali 2 Inspector** é o aplicativo Android deste repositório. A investigação também usa ferramentas de diagnóstico no Windows.
 
-O APK de depuração fica em [Releases](https://github.com/soldieg/Kuba-Control-Android/releases). Requer Android 8 ou mais recente.
+[Baixar APK em Releases](https://github.com/soldieg/Kuba-Control-Android/releases) · [Instalação e compilação](docs/aplicativo.md)
 
-### Bateria por anúncio BLE
+## O que já sabemos
 
-No Android 12 ou superior, selecione o Mali 2 e toque em **Escutar bateria BLE (35 s)**. Mantenha o app na tela e abra o estojo durante a escuta. O decodificador oficial da JieLi lê os anúncios que o Android entrega. O app mostra bateria apenas se o endereço clássico embutido no anúncio combinar com o fone selecionado. Um nível zero no anúncio é mostrado como indisponível. O JSON exporta também os bytes entregues pelo Android em `bleRawScans[].packets[].rawHex`, com endereço BLE, nome anunciado, RSSI, tempo desde o início da escuta e resultado do decodificador. O relatório conserva até quatro escutas e 512 anúncios por escuta e informa as omissões. A exportação pode incluir anúncios de dispositivos próximos.
+- A unidade testada expõe Bluetooth Classic e a porta serial `JL_SPP`. O Windows e o Android leram a identificação de família **JieLi JL710N** e o protocolo de diagnóstico ANC **V2.1.1**.
+- A captura Windows identificou **bateria geral**, comandos **Play/Pause** enviados pelo fone e negociação de áudio **AAC**.
+- O fone anunciou **`0100`** via Hands-Free. A mensagem coincide com o exemplo da especificação Apple. A versão instalada do firmware continua sem confirmação.
+- Bateria de cada lado e do estojo, modo ANC ativo, EQ, gestos configuráveis e modo jogo ainda precisam de uma leitura atribuível à unidade. A consulta de identificação `GetTargetInfo` saiu pelo canal serial em um ensaio Windows e ficou sem resposta de aplicação.
 
-O APK PiHome 1.13.0 da JieLi também contém o decodificador de anúncios. Ele declara localização e usa BLUETOOTH_SCAN sem neverForLocation. O Inspector mantém a permissão de dispositivos próximos sem localização. O Android pode filtrar alguns anúncios com essa configuração. A comparação foi feita nos APKs, sem teste do PiHome com um Mali 2 físico. [Referência JieLi](https://github.com/Jieli-Tech/Android-JL_Bluetooth) · [Permissões BLE do Android](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions)
+## Documentação
 
-Depois de emparelhar, selecione o Mali 2 e toque em **Ler família do chip e protocolo ANC**. Essa ação usa RFCOMM no Android, com as duas consultas documentadas que responderam no Windows. A consulta usa o fone emparelhado selecionado no aplicativo. Em **Abrir demonstração de controles**, bateria, modos, toques e equalização são simulados localmente. O caminho existente pelo SDK oficial JieLi continua disponível para consultas RCSP com autenticação.
-
-Veja [a auditoria do Kuba Control](AUDITORIA_KUBA_CONTROL.md) para a divisão de recursos entre Android e Windows.
-
-Os botões de mídia no topo controlam a sessão de reprodução e o volume do Android. O relatório registra o comando e o estado observado.
-
-A validação de transporte no celular exige o fone emparelhado e uma resposta registrada pelo aplicativo. A reprodução da captura Windows nos testes valida o decodificador.
-
-O objetivo é avançar da identificação do serviço `JL_SPP` do **Kuba Mali 2** para um resultado binário: *SPP abre? SDK JieLi conecta? comando `requestDeviceInfo` recebe resposta?* E, após o primeiro comando aceito, buscar bateria, EQ, identificação, modos acústicos e configurações documentadas.
-
-## Compilar o APK em Windows (rota local)
-
-1. Instale **Android Studio** (JDK 17 integrado) e, em **SDK Manager**, instale **Android SDK Platform 35** e **Build Tools 35**. Aceite as licenças no Android Studio.
-2. Extraia este ZIP em uma pasta normal. Não execute diretamente dentro do ZIP.
-3. Abra **`COMPILAR_APK_WINDOWS.bat`**. O script confere o Android SDK, baixa **somente os dois AAR RCSP/autenticação** diretamente do repositório oficial da JieLi e verifica o SHA-1 de cada blob Git. Instala Gradle 8.9 se não existir. Não precisa Android Studio aberto.
-4. A saída é `Mali2_Inspector_Android_v1_1_5_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
-5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_5_debug.apk`.
-
-Na primeira compilação, são necessárias conexões à internet para Gradle/Android, bibliotecas e dependências.
-
-## Compilar no GitHub Actions (sem configurar SDK no Windows)
-
-1. Crie um repositório **privado** no GitHub (evite enviar MACs e logs pessoais).
-2. Suba **o conteúdo** desta pasta como raiz do repositório, incluindo `.github/workflows/build-apk.yml`.
-3. Abra **Actions → Build Android APK debug → Run workflow**. Alternativamente o workflow inicia em `push` para `main`.
-4. Ao concluir, abra o job e baixe o artefato `Mali2_Inspector_Android_CI_ONLY`, que contém um APK para testes de CI. A assinatura desse artefato é diferente da release.
-
-**A compilação pela nuvem não foi realizada aqui**. Se o workflow falhar por mudança no SDK da JieLi, a saída completa do Gradle mostrará a classe/método que precisa ser adaptado.
-
-## Atualização do aplicativo
-
-Para atualizar sem desinstalar, baixe sempre o APK em **Releases**. As releases usam a mesma assinatura e um código de versão crescente. O APK de Actions ou um build local assinado com outra chave exige uma migração única. Nesse caso, exporte o relatório antes de desinstalar a instalação antiga e instale o APK de Releases.
-
-## Permissões pedidas
-
-| Permissão | Quando e por quê |
-|---|---|
-| `BLUETOOTH_CONNECT` | Android 12+: listar dispositivos já emparelhados, consultar serviços e conectar por SPP. Solicitada ao abrir o app. |
-| `BLUETOOTH_SCAN` (`neverForLocation`) | Android 12+: o gerenciador oficial JieLi pode precisar executar descoberta durante a conexão. Pedida somente ao escolher **Conectar SDK JieLi**. |
-| `MODIFY_AUDIO_SETTINGS` | Ajustar o volume de mídia do Android pelos botões do app. |
-| `BLUETOOTH` / `BLUETOOTH_ADMIN` (`maxSdkVersion=30`) | Compatibilidade Bluetooth Classic/SDK com Android 11 ou anterior. |
-
-**Não são pedidas:** localização, acesso a armazenamento geral, internet, SMS, contatos, microfone, notificações, acesso root, depuração USB ou acessibilidade. O diagnóstico é local; `ACTION_CREATE_DOCUMENT` permite exportar um JSON sem permissões de armazenamento. O SDK de terceiros é baixado **na compilação**, não pelo aplicativo.
-
-## Procedimento recomendado
-
-1. Emparelhe o Mali 2 pelo Bluetooth nas **Configurações do Android**, antes de abrir o aplicativo.
-2. Abra o app e aceite **Dispositivos próximos / Conectar**. Selecione explicitamente *Kuba Mali 2*; caso vários apareçam, confira o MAC do seu próprio fone.
-3. Clique **Selecionar este fone e ler dados Android**. O app mostra os UUIDs conhecidos pelo Android.
-4. Clique **Testar SPP puro — SOMENTE RECEBER**. Isso tenta abrir o RFCOMM seguro com o UUID SPP. Encerre o teste após alguns segundos. **Abrir e receber 0 bytes não comprova autenticação nem suporta RCSP.**
-5. Toque em **Conectar e ler ANC, bateria e firmware**. O app usa `BluetoothOption.PREFER_SPP`, `setUseDeviceAuth(true)` e `RCSPController.connectDevice(..., PROTOCOL_TYPE_SPP)`. O SDK gerencia sua própria negociação; não tenta burlar autenticação.
-6. O app consulta automaticamente quando o SDK fica pronto. Use **Repetir consultas do fone** para ler novamente. Uma resposta válida a `requestDeviceInfo` habilita uma sequência limitada de consultas oficiais somente leitura. Sem essa resposta, o app **para** e registra o erro, em vez de insistir em comandos.
-7. Para gestos, ative o monitor de áudio e marque os oito testes. Um registro de alteração de volume não demonstra ter capturado um quadro AVRCP; e o modo jogo não deve aparecer como ANC.
-8. Use **Exportar relatório JSON** e envie o resultado, sem necessidade de enviar logs pessoais do telefone.
-
-## Resultados esperados por frente
-
-| Frente | Acesso e evidência |
-|---|---|
-| Emparelhamento e serviços | `getBondedDevices()` / `BluetoothDevice.getUuids()`, origem Android |
-| Nível de bateria | Consulta RCSP e callback de bateria, conforme suporte do fone. |
-| SPP | `createRfcommSocketToServiceRecord(SPP_UUID)` + `connect()`, erro ou socket aberto |
-| RCSP e autenticação | SDK oficial, callback de conexão; **conexão por si só não prova autenticação** |
-| Firmware e identificadores | `requestDeviceInfo()` e callback `DeviceInfo`; apenas valores realmente retornados |
-| Bateria / volume / EQ internos | `getDevSysInfo()` com máscaras 0/1/4; callbacks reais `onBatteryChange`, `onVolumeChange`, `onEqChange` |
-| ANC / transparência | `getCurrentVoiceMode()` e `getAllVoiceModes()`; confirmação por callback |
-| Controles sensíveis e detecção | `getDeviceSettingsInfo()` → `ADVInfoResponse` se modelo suportar; gestos locais independentes |
-| Modo jogo | Marcação manual e investigação de RCSP; `SysExpandFunc.isGameMode` existe no SDK genérico, mas não é prova de leitura disponível no Mali 2 |
-| Codec negociado | **Não é extraído por este APK**; continua exigindo captura AVDTP/HCI válida |
-
-## Segurança e limites
-
-O APK não possui ações de gravar EQ, trocar ANC, atualizar firmware, renomear fone, alterar teclas ou mudar configurações. Os comandos RCSP enviados são leituras solicitadas pelo usuário. Use apenas uma sessão Bluetooth de diagnóstico por vez.
-
-A biblioteca JieLi é genérica, não específica da Kuba. Uma resposta válida depende do firmware reconhecer e aceitar o protocolo e a autenticação. O app pode registrar **conexão SPP aberta, SDK sem resposta**, e esse é um resultado técnico útil: a próxima investigação deve mirar na configuração da autenticação/documentação OEM, não repetir varreduras BLE.
-
-### Referências oficiais
-
-- Repositório e bibliotecas: https://github.com/Jieli-Tech/Android-JL_Bluetooth
-- Documentação de conexão Android: https://developer.android.com/develop/connectivity/bluetooth/connect-bluetooth-devices
-- Permissões Bluetooth: https://developer.android.com/develop/connectivity/bluetooth/bt-permissions
-- SDK autenticado: https://doc.zh-jieli.com/Apps/Android/jielihome/en-us/master/development/import.html
-- Consulta a dispositivos JieLi: https://github.com/Jieli-Tech/Android-JL_Bluetooth/blob/main/doc/JieLi_Home_SDK_V4.2.0_html_en/html/_sources/development/function/basic_func.rst.txt
-
-## Para auditar o projeto
-
-- `app/src/main/java/com/mali2/inspector/MainActivity.java` — interface, Bluetooth Android, socket SPP, gestos e relatórios.
-- `app/src/main/java/com/mali2/inspector/JieliBridge.java` — transporte e consultas oficiais RCSP.
-- `app/src/main/AndroidManifest.xml` — permissões; app sem INTERNET e sem OTA.
-- `scripts/preparar_sdk_jieli.ps1` — download e hash dos dois AAR.
-- `scripts/BUILD_WINDOWS.ps1` e `COMPILAR_APK_WINDOWS.bat` — build local.
-- `.github/workflows/build-apk.yml` — build alternativo na nuvem.
+| Página | Conteúdo |
+| --- | --- |
+| [Especificações do Mali 2](docs/especificacoes.md) | Identificação, serviços Bluetooth, áudio, bateria e o que permanece desconhecido. |
+| [Ensaios e evidências](docs/ensaios.md) | O que foi testado no Windows e Android, resultados positivos e negativos e como interpretá-los. |
+| [Aplicativo Android e trabalho no Windows](docs/aplicativo.md) | Funções reais, demonstração, instalação, build, código e diferenças entre plataformas. |
+| [Ferramentas e projetos encontrados](docs/ferramentas.md) | Ferramentas de captura, catálogo de utilitários JieLi e referências comunitárias. |
+| [JieLi, JL710N e firmware](docs/jieli.md) | Fabricante, identificação do chip, SDK, limites dos arquivos de exemplo e fontes de versão. |
