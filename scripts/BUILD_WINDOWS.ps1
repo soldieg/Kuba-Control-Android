@@ -50,10 +50,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Gradle falhou com codigo $LASTEXITCODE; consulte o erro acima" }
     $built=Join-Path $root 'app\build\outputs\apk\debug\app-debug.apk'
     if (-not (Test-Path $built)) {throw 'Gradle concluiu, mas APK nao apareceu no caminho previsto'}
-    $out=Join-Path $root 'Mali2_Inspector_Android_v1_1_2_debug.apk'
+    $out=Join-Path $root 'Mali2_Inspector_Android_v1_1_3_debug.apk'
     Copy-Item -LiteralPath $built -Destination $out -Force
     $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash
     Write-Host "[SUCESSO] APK compilado em: $out" -ForegroundColor Green
     Write-Host "[SHA256] $hash"
-    Write-Host 'Instale pelo cabo com: adb install -r "Mali2_Inspector_Android_v1_1_2_debug.apk"'
+    Write-Host 'Instale pelo cabo com: adb install -r "Mali2_Inspector_Android_v1_1_3_debug.apk"'
 } finally { Pop-Location }

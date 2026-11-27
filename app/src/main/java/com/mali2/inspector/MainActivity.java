@@ -484,7 +484,7 @@ public final class MainActivity extends Activity {
         Uri uri = data.getData();
         try {
             JSONObject out = new JSONObject();
-            out.put("appVersion","1.1.2"); out.put("platform","Android");
+            out.put("appVersion","1.1.3"); out.put("platform","Android");
             out.put("selectedMac", selected == null ? JSONObject.NULL : selected.getAddress());
             out.put("sppState",rawState);out.put("sppBytesReceived",rawBytes);
             out.put("rcspTransportStatus",sdkState.name());

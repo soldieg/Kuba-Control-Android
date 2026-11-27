@@ -23,6 +23,7 @@ import com.jieli.bluetooth.interfaces.rcsp.callback.OnRcspCallback;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.lang.reflect.Method;
 
 /**
@@ -35,6 +36,10 @@ public final class JieliBridge {
     private final MainActivity activity;
     private final Sink sink;
     private final RCSPController controller;
+    private static final int COMMAND_TIMEOUT_MS = 8000;
+    private static final int PENDING_REPORT_MS = 60000;
+    private static final int GET_TARGET_INFO_OPCODE = 0x03;
+
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile BluetoothDevice device;
     private volatile SdkConnectionState state = SdkConnectionState.IDLE;
@@ -46,7 +51,7 @@ public final class JieliBridge {
     private void logPending() {
         if (state.isActive() && !state.canQuery()) {
             sink.log("RCSP_SDK", "SEM_CONFIRMACAO",
-                context() + " estado=" + state + " após 45 s; aguardando callback final do SDK");
+                context() + " estado=" + state + " após " + (PENDING_REPORT_MS / 1000) + " s; aguardando callback final do SDK");
         }
     }
     private final OnRcspCallback rcspCallback = new OnRcspCallback() {
@@ -57,6 +62,7 @@ public final class JieliBridge {
                 case ErrorCode.ERR_NONE: result = "OK"; break;
                 case ErrorCode.SUB_ERR_START_AUTH_DEVICE: result = "FALHA_AO_INICIAR_AUTENTICACAO"; break;
                 case ErrorCode.SUB_ERR_AUTH_DEVICE: result = "FALHA_DE_AUTENTICACAO"; break;
+                case ErrorCode.SUB_ERR_SEND_TIMEOUT: result = "TEMPO_LIMITE_RESPOSTA"; break;
                 case ErrorCode.SUB_ERR_REMOTE_DEVICE_DISCONNECT: result = "DISPOSITIVO_DESCONECTADO"; break;
                 default: result = "OUTRO_RESULTADO"; break;
             }
@@ -132,7 +138,7 @@ public final class JieliBridge {
                 .setPriority(BluetoothOption.PREFER_SPP)
                 .setUseDeviceAuth(true)
                 .setUseMultiDevice(false)
-                .setTimeoutMs(5000);
+                .setTimeoutMs(COMMAND_TIMEOUT_MS);
             RCSPController.init(a.getApplicationContext(),option);
         } else {
             sink.log("RCSP_SDK", "JA_INICIALIZADO", "Instância RCSP do processo existente, não altera autenticação");
@@ -157,9 +163,17 @@ public final class JieliBridge {
         return "tentativa=" + attempt + " decorrido_ms=" + (SystemClock.elapsedRealtime() - attemptStart);
     }
     private void logError(String origin, BaseError error) {
-        String detail = error == null ? "sem código" :
-            "codigo=" + error.getCode() + " subcodigo=" + error.getSubCode() + " mensagem=" + error.getMessage();
-        sink.log(origin, "ERRO", context() + " " + detail);
+        if (error == null) {
+            sink.log(origin, "ERRO", context() + " sem código");
+            return;
+        }
+        int opcode = error.getOpCode();
+        String command = opcode == GET_TARGET_INFO_OPCODE ? " comando=GetTargetInfo" : "";
+        String opcodeText = opcode < 0 ? "indisponivel" : String.format(Locale.ROOT, "0x%02X", opcode);
+        sink.log(origin, "ERRO", context() + " codigo=" + error.getCode()
+            + " subcodigo=" + error.getSubCode() + " opcode=" + opcodeText + command
+            + " sequencia=" + error.getSn() + " motivo_sdk=" + error.getReason()
+            + " mensagem=" + error.getMessage());
     }
     void connect(BluetoothDevice selected) {
         if (state.isActive()) {
@@ -174,9 +188,10 @@ public final class JieliBridge {
         try {
             BluetoothOption option = controller.getBluetoothOption();
             sink.log("RCSP_SDK", "CONECTANDO", context() + " transporte=SPP uuid=" + option.getSppUUID()
-                + " autenticacao=" + option.isUseDeviceAuth() + " pareamento=" + selected.getBondState()
+                + " autenticacao=" + option.isUseDeviceAuth() + " timeout_comando_ms=" + option.getTimeoutMs()
+                + " pareamento=" + selected.getBondState()
                 + " tipo=" + selected.getType() + " servicos_android=" + Arrays.toString(selected.getUuids()));
-            main.postDelayed(pending, 45000);
+            main.postDelayed(pending, PENDING_REPORT_MS);
             controller.connectDevice(selected, BluetoothConstant.PROTOCOL_TYPE_SPP);
         } catch (RuntimeException | LinkageError error) {
             main.removeCallbacks(pending);
@@ -189,8 +204,13 @@ public final class JieliBridge {
         if (!isConnected()) { sink.log("RCSP", "SEM_TRANSPORTE", "Conecte primeiro"); return; }
         if (queried) { sink.log("RCSP", "CONSULTA_EM_ANDAMENTO", "Não enviar duas rajadas de consultas"); return; }
         queried=true;
-        sink.log("RCSP_ID", "SOLICITADO", "Comando oficial requestDeviceInfo; aguardando resposta/autenticação");
         try {
+            DeviceInfo synced = controller.isRcspInit(d) ? controller.getDeviceInfo(d) : null;
+            if (synced != null) {
+                readDeviceInfo(d, synced, "SINCRONIZACAO_SDK");
+                return;
+            }
+            sink.log("RCSP_ID", "SOLICITADO", "Comando oficial requestDeviceInfo; aguardando resposta");
             controller.requestDeviceInfo(d, 0xffffffff, new OnRcspActionCallback<DeviceInfo>() {
                 @Override public void onSuccess(BluetoothDevice dev, DeviceInfo info) {
                     if (!isConnected() || !matches(dev)) return;
@@ -199,22 +219,26 @@ public final class JieliBridge {
                         sink.log("RCSP_ID", "RESPOSTA_NULA", "SDK retornou objeto nulo; nenhuma leitura interna confirmada");
                         return;
                     }
-                    sink.log("RCSP_ID", "RESPOSTA_RCSP_SDK_RECEBIDA", String.valueOf(info));
-                    sink.log("RCSP_ID_CAMPOS", "CAMPOS_PRESENTES", safeGetters(info,
-                        "getName", "getDeviceName", "getFirmwareVersion", "getFirmwareVersionCode", "getVersionName", "getVersionCode", "getSdkType", "getVid", "getPid", "getUid", "getPlatform", "getAuthVersion", "getSysExpandFunc"));
-                    Object expand = tryGetter(info, "getSysExpandFunc");
-                    if (expand != null) {
-                        sink.log("RCSP_MODO_JOGO", "ESTADO_SE_SDK_EXPUSER", safeGetters(expand, "isGameMode", "getGameMode"));
-                    }
-                    // Only after first non-null SDK response do we run other read-only functions.
-                    querySystem(d);
+                    readDeviceInfo(d, info, "RESPOSTA_RCSP_SDK_RECEBIDA");
                 }
                 @Override public void onError(BluetoothDevice dev, BaseError error) {
                     queried=false;
-                    if (matches(dev)) sink.log("RCSP_ID", "ERRO_OU_INCOMPATIVEL", String.valueOf(error));
+                    if (matches(dev)) logError("RCSP_ID", error);
                 }
             });
         } catch (Throwable e) { queried=false; sink.log("RCSP_ID","EXCECAO", e.toString()); }
+    }
+    private void readDeviceInfo(BluetoothDevice target, DeviceInfo info, String source) {
+        sink.log("RCSP_ID", source, "Identificação fornecida pelo SDK para esta sessão.");
+        sink.log("RCSP_ID_CAMPOS", "CAMPOS_PRESENTES", safeGetters(info,
+            "getName", "getDeviceName", "getFirmwareVersion", "getFirmwareVersionCode",
+            "getVersionName", "getVersionCode", "getSdkType", "getVid", "getPid", "getUid",
+            "getPlatform", "getAuthVersion", "getSysExpandFunc"));
+        Object expand = tryGetter(info, "getSysExpandFunc");
+        if (expand != null) {
+            sink.log("RCSP_MODO_JOGO", "ESTADO_SE_SDK_EXPUSER", safeGetters(expand, "isGameMode", "getGameMode"));
+        }
+        querySystem(target);
     }
     private void querySystem(BluetoothDevice d) {
         if (!isConnected() || !matches(d)) return;
