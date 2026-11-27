@@ -22,11 +22,12 @@ jobs:
         run: |
           output="$(mktemp -d)"
           javac --release 17 -d "$output" \
-            app/src/main/java/com/mali2/inspector/{AncIdentity,SdkConnectionState,BleBatteryReading}.java \
-            tests/{AncIdentityTest,SdkConnectionStateTest,BleBatteryReadingTest}.java
+            app/src/main/java/com/mali2/inspector/{AncIdentity,SdkConnectionState,BleBatteryReading,BleRawCapture}.java \
+            tests/{AncIdentityTest,SdkConnectionStateTest,BleBatteryReadingTest,BleRawCaptureTest}.java
           java -cp "$output" com.mali2.inspector.AncIdentityTest
           java -cp "$output" com.mali2.inspector.SdkConnectionStateTest
           java -cp "$output" com.mali2.inspector.BleBatteryReadingTest
+          java -cp "$output" com.mali2.inspector.BleRawCaptureTest
       - name: Download and verify official JieLi AARs
         run: |
           python3 - <<'PY'

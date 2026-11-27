@@ -75,6 +75,8 @@ public final class MainActivity extends Activity {
     private Button connectButton, queryButton, disconnectButton, bleBatteryButton;
     private TextView bleBatteryStatus;
     private BleBatteryScan bleBatteryScan;
+    private final ArrayList<BleBatteryScan> rawBleScans = new ArrayList<>();
+    private int omittedBleScans;
     private String lastBleReading;
     private JieliBridge jieli;
     private AudioManager audio;
@@ -281,6 +283,11 @@ public final class MainActivity extends Activity {
                 return;
             }
             bleBatteryScan = new BleBatteryScan(scanner, selected.getAddress(), this::onBleBatteryEvent);
+            if (rawBleScans.size() == 4) {
+                rawBleScans.remove(0);
+                omittedBleScans++;
+            }
+            rawBleScans.add(bleBatteryScan);
             bleBatteryScan.start();
         } catch (RuntimeException | LinkageError error) {
             onBleBatteryEvent("BLE_ESCUTA", "ERRO", String.valueOf(error));
@@ -549,13 +556,17 @@ public final class MainActivity extends Activity {
         Uri uri = data.getData();
         try {
             JSONObject out = new JSONObject();
-            out.put("appVersion","1.1.4"); out.put("platform","Android");
+            out.put("appVersion","1.1.5"); out.put("platform","Android");
             out.put("selectedMac", selected == null ? JSONObject.NULL : selected.getAddress());
             out.put("sppState",rawState);out.put("sppBytesReceived",rawBytes);
             out.put("rcspTransportStatus",sdkState.name());
             out.put("confirmedInternalData","Conferir ANC_IDENTIDADE, BLE_BATERIA e callbacks RCSP_*");
             out.put("note","Medição Android não é prova de bateria interna; SDK genérico não confirma suporte do modelo.");
             out.put("events",new JSONArray(events));
+            JSONArray rawScans = new JSONArray();
+            for (BleBatteryScan scan : rawBleScans) rawScans.put(scan.rawReport());
+            out.put("bleRawScans", rawScans);
+            out.put("bleRawScansOmitted", omittedBleScans);
             OutputStream stream = getContentResolver().openOutputStream(uri);
             if (stream == null) throw new IOException("Não foi possível abrir destino");
             try (OutputStream os=stream) { os.write(out.toString(2).getBytes(StandardCharsets.UTF_8)); }

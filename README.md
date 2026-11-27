@@ -1,12 +1,12 @@
-# Mali 2 Inspector Android 1.1.4 — APK Android nativo + SDK oficial JieLi
+# Mali 2 Inspector Android 1.1.5 — APK Android nativo + SDK oficial JieLi
 
-## Android 1.1.4
+## Android 1.1.5
 
 O APK de depuração fica em [Releases](https://github.com/soldieg/Kuba-Control-Android/releases). Requer Android 8 ou mais recente.
 
 ### Bateria por anúncio BLE
 
-No Android 12 ou superior, selecione o Mali 2 e toque em **Escutar bateria BLE (35 s)**. Mantenha o app na tela e abra o estojo durante a escuta. O decodificador oficial da JieLi lê os anúncios que o Android entrega. O app mostra bateria apenas se o endereço clássico embutido no anúncio combinar com o fone selecionado. Um nível zero no anúncio é mostrado como indisponível. O JSON exporta os níveis observados e os contadores da escuta.
+No Android 12 ou superior, selecione o Mali 2 e toque em **Escutar bateria BLE (35 s)**. Mantenha o app na tela e abra o estojo durante a escuta. O decodificador oficial da JieLi lê os anúncios que o Android entrega. O app mostra bateria apenas se o endereço clássico embutido no anúncio combinar com o fone selecionado. Um nível zero no anúncio é mostrado como indisponível. O JSON exporta também os bytes entregues pelo Android em `bleRawScans[].packets[].rawHex`, com endereço BLE, nome anunciado, RSSI, tempo desde o início da escuta e resultado do decodificador. O relatório conserva até quatro escutas e 512 anúncios por escuta e informa as omissões. A exportação pode incluir anúncios de dispositivos próximos.
 
 O APK PiHome 1.13.0 da JieLi também contém o decodificador de anúncios. Ele declara localização e usa BLUETOOTH_SCAN sem neverForLocation. O Inspector mantém a permissão de dispositivos próximos sem localização. O Android pode filtrar alguns anúncios com essa configuração. A comparação foi feita nos APKs, sem teste do PiHome com um Mali 2 físico. [Referência JieLi](https://github.com/Jieli-Tech/Android-JL_Bluetooth) · [Permissões BLE do Android](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions)
 
@@ -25,8 +25,8 @@ O objetivo é avançar da identificação do serviço `JL_SPP` do **Kuba Mali 2*
 1. Instale **Android Studio** (JDK 17 integrado) e, em **SDK Manager**, instale **Android SDK Platform 35** e **Build Tools 35**. Aceite as licenças no Android Studio.
 2. Extraia este ZIP em uma pasta normal. Não execute diretamente dentro do ZIP.
 3. Abra **`COMPILAR_APK_WINDOWS.bat`**. O script confere o Android SDK, baixa **somente os dois AAR RCSP/autenticação** diretamente do repositório oficial da JieLi e verifica o SHA-1 de cada blob Git. Instala Gradle 8.9 se não existir. Não precisa Android Studio aberto.
-4. A saída é `Mali2_Inspector_Android_v1_1_4_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
-5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_4_debug.apk`.
+4. A saída é `Mali2_Inspector_Android_v1_1_5_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
+5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_5_debug.apk`.
 
 Na primeira compilação, são necessárias conexões à internet para Gradle/Android, bibliotecas e dependências.
 
