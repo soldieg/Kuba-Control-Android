@@ -1,0 +1,4 @@
+O script scripts/preparar_sdk_jieli.ps1 baixa exatamente 2 AAR oficiais de Jieli-Tech/Android-JL_Bluetooth:
+- jl_bluetooth_rcsp_V4.2.0_40250-release.aar
+- jldecryption_v0.4-release.aar
+Nao inclua biblioteca OTA, chaves privadas ou firmware de terceiros.

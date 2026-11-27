@@ -1,0 +1,47 @@
+name: Build Android APK debug
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Download and verify official JieLi AARs
+        run: |
+          python3 - <<'PY'
+          import urllib.request,hashlib,pathlib
+          base='https://raw.githubusercontent.com/Jieli-Tech/Android-JL_Bluetooth/main/libs/'
+          libs={
+            'jl_bluetooth_rcsp_V4.2.0_40250-release.aar':'96be927894a69eb4af1fcc7dc1191a337360f86e',
+            'jldecryption_v0.4-release.aar':'fd933770e05afe815240922641a76fe62be7778b'}
+          d=pathlib.Path('app/libs');d.mkdir(exist_ok=True)
+          for name,sha in libs.items():
+            blob=urllib.request.urlopen(base+name,timeout=90).read()
+            gitsha=hashlib.sha1(b'blob '+str(len(blob)).encode()+b'\0'+blob).hexdigest()
+            assert gitsha==sha,(name,gitsha,sha)
+            assert blob.startswith(b'PK'),name
+            (d/name).write_bytes(blob)
+            print(name,'verified',len(blob))
+          PY
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile installable debug APK
+        run: gradle --no-daemon :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mali2_Inspector_Android_debug_APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

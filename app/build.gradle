@@ -1,0 +1,43 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.mali2.inspector'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId 'com.mali2.inspector'
+        minSdk 26
+        targetSdk 35
+        versionCode 110
+        versionName '1.1.0'
+    }
+    buildTypes {
+        release { minifyEnabled false }
+        debug { debuggable true }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint { abortOnError false }
+    packaging { resources { excludes += ['META-INF/DEPENDENCIES','META-INF/LICENSE*','META-INF/NOTICE*'] } }
+}
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.aar'])
+    implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'androidx.annotation:annotation:1.9.1'
+}
+// Two official JieLi AARs are downloaded by scripts/preparar_sdk_jieli.ps1.
+tasks.register('verifyJieliAars') {
+    doLast {
+        def expected = [
+            'jl_bluetooth_rcsp_V4.2.0_40250-release.aar',
+            'jldecryption_v0.4-release.aar'
+        ]
+        expected.each { filename ->
+            def file = new File(project.projectDir, 'libs/' + filename)
+            if (!file.exists() || file.length() < 20000L)
+                throw new GradleException('Biblioteca oficial JieLi ausente: '+filename+' (execute scripts/preparar_sdk_jieli.ps1)')
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn('verifyJieliAars') }
