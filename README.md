@@ -17,8 +17,8 @@ O objetivo é avançar da identificação do serviço `JL_SPP` do **Kuba Mali 2*
 1. Instale **Android Studio** (JDK 17 integrado) e, em **SDK Manager**, instale **Android SDK Platform 35** e **Build Tools 35**. Aceite as licenças no Android Studio.
 2. Extraia este ZIP em uma pasta normal. Não execute diretamente dentro do ZIP.
 3. Abra **`COMPILAR_APK_WINDOWS.bat`**. O script confere o Android SDK, baixa **somente os dois AAR RCSP/autenticação** diretamente do repositório oficial da JieLi e verifica o SHA-1 de cada blob Git. Instala Gradle 8.9 se não existir. Não precisa Android Studio aberto.
-4. A saída é `Mali2_Inspector_Android_v1_1_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
-5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_debug.apk`.
+4. A saída é `Mali2_Inspector_Android_v1_1_1_debug.apk` na raiz deste projeto. Assinado automaticamente com **chave DEBUG** da instalação do Gradle. Não serve para distribuição na Play Store.
+5. Passe o APK para o celular e instale (autorize instalar app dessa fonte, se o Android solicitar), ou use `adb install -r Mali2_Inspector_Android_v1_1_1_debug.apk`.
 
 Na primeira compilação, são necessárias conexões à internet para Gradle/Android, bibliotecas e dependências.
 

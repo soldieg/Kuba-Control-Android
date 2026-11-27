@@ -7,8 +7,8 @@ android {
         applicationId 'com.mali2.inspector'
         minSdk 26
         targetSdk 35
-        versionCode 110
-        versionName '1.1.0'
+        versionCode 111
+        versionName '1.1.1'
     }
     buildTypes {
         release { minifyEnabled false }
@@ -25,6 +25,9 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.aar'])
     implementation 'com.google.code.gson:gson:2.13.1'
     implementation 'androidx.annotation:annotation:1.9.1'
+    // The local JieLi AAR references these classes without declaring transitive dependencies.
+    implementation 'androidx.collection:collection:1.4.5'
+    implementation 'androidx.core:core:1.15.0'
 }
 // Two official JieLi AARs are downloaded by scripts/preparar_sdk_jieli.ps1.
 tasks.register('verifyJieliAars') {

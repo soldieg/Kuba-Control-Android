@@ -46,6 +46,8 @@ jobs:
           gradle-version: '8.9'
       - name: Compile installable debug APK
         run: gradle --no-daemon :app:assembleDebug
+      - name: Verify JieLi SDK classes in the APK
+        run: python3 -B tests/verify_sdk_packaging.py app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Mali2_Inspector_Android_debug_APK
